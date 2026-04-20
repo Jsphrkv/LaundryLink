@@ -74,6 +74,32 @@ export default function CustomerHomePage() {
       .finally(() => setLoading(false));
   }, [user]);
 
+  // Real-time: auto-refresh orders when status changes (no manual refresh needed)
+  useEffect(() => {
+    if (!user) return;
+    const supabaseModule = import("../../services/supabase");
+    let cleanup: (() => void) | undefined;
+    supabaseModule.then(({ default: supabase }) => {
+      const ch = supabase
+        .channel(`customer_orders_rt:${user.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "orders",
+            filter: `customer_id=eq.${user.id}`,
+          },
+          () => {
+            orderService.getCustomerOrders(user.id).then(setOrders);
+          },
+        )
+        .subscribe();
+      cleanup = () => ch.unsubscribe();
+    });
+    return () => cleanup?.();
+  }, [user]);
+
   const activeOrders = orders.filter(
     (o) => !["delivered", "cancelled", "refunded"].includes(o.status),
   );
@@ -105,14 +131,13 @@ export default function CustomerHomePage() {
           </div>
           <span className="text-4xl">🧺</span>
         </div>
-        <Button
-          variant="secondary"
-          className="mt-4 bg-white text-black hover:bg-white/90 font-bold"
-          leftIcon={<ShoppingBag size={16} />}
+        <button
           onClick={() => navigate("/customer/book")}
+          className="mt-4 inline-flex items-center gap-2 bg-white text-primary font-bold px-5 py-2.5 rounded-xl hover:bg-white/90 transition-all active:scale-[0.98] shadow-sm text-sm"
         >
+          <ShoppingBag size={16} />
           Book a Pickup
-        </Button>
+        </button>
       </div>
 
       {/* Quick stats */}

@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { useAuthStore } from "../store/auth.store";
 import { LoginPage, RegisterPage } from "../pages/auth/AuthPages";
+import ForgotPasswordPage from "../pages/auth/ForgotPasswordPage";
 import CustomerHomePage from "../pages/customer/HomePage";
 import BookingPage from "../pages/customer/BookingPage";
 import { OrdersPage, OrderDetailPage } from "../pages/customer/OrdersPage";
@@ -109,6 +110,14 @@ export default function AppRouter() {
           element={
             <GuestOnly>
               <RegisterPage />
+            </GuestOnly>
+          }
+        />
+        <Route
+          path="/forgot-password"
+          element={
+            <GuestOnly>
+              <ForgotPasswordPage />
             </GuestOnly>
           }
         />
