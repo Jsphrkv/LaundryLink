@@ -4,6 +4,7 @@ import { Toaster } from "react-hot-toast";
 import { useAuthStore } from "../store/auth.store";
 import { LoginPage, RegisterPage } from "../pages/auth/AuthPages";
 import ForgotPasswordPage from "../pages/auth/ForgotPasswordPage";
+import ResetPasswordPage from "../pages/auth/ResetPasswordPage";
 import CustomerHomePage from "../pages/customer/HomePage";
 import BookingPage from "../pages/customer/BookingPage";
 import { OrdersPage, OrderDetailPage } from "../pages/customer/OrdersPage";
@@ -121,6 +122,8 @@ export default function AppRouter() {
             </GuestOnly>
           }
         />
+        {/* Reset password — NOT wrapped in GuestOnly or RequireAuth; Supabase token handles auth */}
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         {/* Customer */}
         <Route
           path="/customer"
