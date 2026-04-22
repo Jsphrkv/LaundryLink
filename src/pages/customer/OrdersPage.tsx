@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, lazy, Suspense } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { ArrowLeft, Phone } from "lucide-react";
+import { ArrowLeft, Phone, MapPin } from "lucide-react";
 import { useAuthStore } from "../../store/auth.store";
 import { orderService } from "../../services/order.service";
+import { riderService } from "../../services/shop-rider.service";
+import supabase from "../../services/supabase";
 import { Order, OrderStatus } from "../../types";
 import { DashboardLayout } from "../../components/layout/DashboardLayout";
 import { OrderCard } from "../../components/common/Cards";
@@ -19,6 +21,10 @@ import {
 import { STATUS_TIMELINE, SERVICE_LABELS, APP_CONFIG } from "../../constants";
 import { useRealtimeOrders } from "../../hooks/useRealtimeOrders";
 import clsx from "clsx";
+import { MapMarker } from "../../components/common/LiveMap";
+
+// Lazy-load map to avoid SSR/bundle issues
+const LiveMap = lazy(() => import("../../components/common/LiveMap"));
 
 // ─── Orders List Page ─────────────────────────────────────────────────────────
 export function OrdersPage() {
@@ -120,6 +126,9 @@ export function OrderDetailPage() {
   const [shopStar, setShopStar] = useState(0);
   const [riderStar, setRiderStar] = useState(0);
   const [rating, setRating] = useState(false);
+  const [riderPos, setRiderPos] = useState<{ lat: number; lng: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!id) return;
@@ -127,6 +136,11 @@ export function OrderDetailPage() {
       .getOrderById(id)
       .then((o) => {
         setOrder(o);
+        // Load initial rider position if already assigned
+        const r = (o as any)?.rider;
+        if (r?.current_lat && r?.current_lng) {
+          setRiderPos({ lat: r.current_lat, lng: r.current_lng });
+        }
       })
       .finally(() => setLoading(false));
 
@@ -137,6 +151,20 @@ export function OrderDetailPage() {
       ch.unsubscribe();
     };
   }, [id]);
+
+  // Subscribe to rider's live GPS position
+  useEffect(() => {
+    if (!order?.rider_id) return;
+    const ch = riderService.subscribeToRiderLocation(
+      order.rider_id,
+      (lat, lng) => {
+        setRiderPos({ lat, lng });
+      },
+    );
+    return () => {
+      ch.unsubscribe();
+    };
+  }, [order?.rider_id]);
 
   const handleCancel = async () => {
     if (!order || !user) return;
@@ -192,7 +220,51 @@ export function OrderDetailPage() {
   const statusIdx = STATUS_TIMELINE.findIndex((s) => s.status === order.status);
   const isCancelled = order.status === "cancelled";
   const isDelivered = order.status === "delivered";
-  const canCancel = ["pending", "confirmed"].includes(order.status);
+  const canCancel = ["pending"].includes(order.status);
+  const isRiderActive = [
+    "rider_assigned",
+    "rider_on_way_pickup",
+    "picked_up",
+    "rider_on_way_delivery",
+  ].includes(order.status);
+
+  // Build map markers
+  const mapMarkers: MapMarker[] = [];
+  const pickupAddr = (order as any).pickup_address;
+  const shop = (order as any).shop;
+
+  if (pickupAddr?.lat && pickupAddr?.lng && pickupAddr.lat !== 0) {
+    mapMarkers.push({
+      lat: pickupAddr.lat,
+      lng: pickupAddr.lng,
+      label: "Your address",
+      icon: "customer",
+      popup: `📍 ${pickupAddr.full_address}`,
+    });
+  }
+  if (shop?.lat && shop?.lng && shop.lat !== 0) {
+    mapMarkers.push({
+      lat: shop.lat,
+      lng: shop.lng,
+      label: shop.shop_name,
+      icon: "shop",
+      popup: `🏪 ${shop.shop_name}`,
+    });
+  }
+  if (riderPos) {
+    mapMarkers.push({
+      lat: riderPos.lat,
+      lng: riderPos.lng,
+      label: "Rider",
+      icon: "rider",
+      popup: "🛵 Your Rider",
+    });
+  }
+
+  const mapCenter =
+    (riderPos ?? pickupAddr?.lat)
+      ? { lat: pickupAddr.lat, lng: pickupAddr.lng }
+      : undefined;
 
   return (
     <DashboardLayout title={`Order ${order.order_number}`}>
@@ -217,6 +289,52 @@ export function OrderDetailPage() {
           <StatusBadge status={order.status} />
         </div>
       </Card>
+
+      {/* Live Map — shown when rider is active or always to show route */}
+      {mapMarkers.length > 0 && (
+        <Card className="p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-gray-900">
+              {isRiderActive ? "🛵 Live Rider Tracking" : "📍 Delivery Route"}
+            </h3>
+            {isRiderActive && riderPos && (
+              <span className="flex items-center gap-1.5 text-xs font-bold text-green-600 bg-green-50 px-2.5 py-1 rounded-full">
+                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                Live
+              </span>
+            )}
+          </div>
+
+          <Suspense
+            fallback={
+              <div className="h-64 bg-gray-100 rounded-xl flex items-center justify-center">
+                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            }
+          >
+            <LiveMap markers={mapMarkers} center={mapCenter} height="260px" />
+          </Suspense>
+
+          {/* Legend */}
+          <div className="flex gap-4 mt-3 flex-wrap">
+            {mapMarkers.some((m) => m.icon === "rider") && (
+              <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span className="text-base">🛵</span> Rider
+              </span>
+            )}
+            {mapMarkers.some((m) => m.icon === "customer") && (
+              <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span className="text-base">📍</span> Your Address
+              </span>
+            )}
+            {mapMarkers.some((m) => m.icon === "shop") && (
+              <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span className="text-base">🏪</span> Laundry Shop
+              </span>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Timeline */}
       {!isCancelled && (

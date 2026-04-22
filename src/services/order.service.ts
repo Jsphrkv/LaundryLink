@@ -77,6 +77,20 @@ export const orderService = {
       created_by: customerId,
     });
 
+    // In-app notification for customer
+    await supabase.from("notifications").insert({
+      user_id: customerId,
+      title: `🧺 Order ${data.order_number} Placed!`,
+      body: `Your pickup is scheduled for ${booking.scheduled_date} (${booking.scheduled_time}). A rider will be assigned shortly.`,
+      type: "order_update",
+      order_id: data.id,
+    });
+
+    // Trigger email receipt edge function (non-blocking — don't await)
+    supabase.functions
+      .invoke("send-order-email", { body: { order_id: data.id } })
+      .catch(() => {});
+
     return data;
   },
 
@@ -152,6 +166,67 @@ export const orderService = {
     await supabase
       .from("order_status_history")
       .insert({ order_id: orderId, status, note, created_by: updatedBy });
+
+    // Push in-app notification to customer
+    const STATUS_NOTIFS: Partial<
+      Record<OrderStatus, { title: string; body: string }>
+    > = {
+      rider_assigned: {
+        title: "🛵 Rider Assigned!",
+        body: "A rider has been assigned and will head to you shortly.",
+      },
+      rider_on_way_pickup: {
+        title: "📍 Rider is on the Way!",
+        body: "Your rider is heading to your pickup address now.",
+      },
+      picked_up: {
+        title: "📦 Laundry Picked Up!",
+        body: "Your laundry has been collected and is heading to the shop.",
+      },
+      confirmed: {
+        title: "🏪 Arrived at Shop",
+        body: "Your laundry has been dropped off at the laundry shop.",
+      },
+      washing: {
+        title: "🫧 Washing in Progress",
+        body: "Your laundry is currently being washed and processed.",
+      },
+      ready_for_delivery: {
+        title: "✨ Laundry Ready!",
+        body: "Your laundry is clean and ready. The rider will pick it up soon.",
+      },
+      rider_on_way_delivery: {
+        title: "🚀 Out for Delivery!",
+        body: "Your clean laundry is on its way back to you!",
+      },
+      delivered: {
+        title: "🎉 Delivered!",
+        body: "Your laundry has been delivered. Enjoy fresh clothes! ⭐ Don't forget to rate your experience.",
+      },
+      cancelled: {
+        title: "❌ Order Cancelled",
+        body: "Your order has been cancelled.",
+      },
+    };
+
+    const msg = STATUS_NOTIFS[status];
+    if (msg) {
+      // Get customer_id for this order
+      const { data: orderRow } = await supabase
+        .from("orders")
+        .select("customer_id")
+        .eq("id", orderId)
+        .single();
+      if (orderRow?.customer_id) {
+        await supabase.from("notifications").insert({
+          user_id: orderRow.customer_id,
+          title: msg.title,
+          body: msg.body,
+          type: "order_update",
+          order_id: orderId,
+        });
+      }
+    }
   },
 
   async assignRider(orderId: string, riderId: string) {

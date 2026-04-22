@@ -48,6 +48,21 @@ export default function BookingPage() {
     booking.reset();
   }, []);
 
+  // Live price estimate — updates as user picks service, weight, shop
+  const shop = booking.selected_shop;
+  const service = shop?.services?.find(
+    (s) => s.service_type === booking.service_type,
+  );
+  const subtotal = service
+    ? service.price_per_kg * booking.estimated_weight_kg
+    : null;
+  const delFee = shop
+    ? APP_CONFIG.deliveryFeeBase +
+      (shop.distance_km ?? 3) * APP_CONFIG.deliveryFeePerKm
+    : APP_CONFIG.deliveryFeeBase;
+  const total = subtotal !== null ? subtotal + delFee : null;
+  const showCalc = booking.step >= 2; // show from laundry details step onwards
+
   return (
     <DashboardLayout title="Book a Pickup">
       <div className="max-w-2xl mx-auto">
@@ -105,6 +120,39 @@ export default function BookingPage() {
             );
           })}
         </div>
+
+        {/* Live Price Estimator — appears from step 2 onwards */}
+        {showCalc && (
+          <div className="bg-primary-50 border border-primary-100 rounded-xl px-4 py-3 mb-5 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 flex-wrap text-xs text-primary-700 font-semibold">
+              {booking.service_type && (
+                <span>👕 {SERVICE_LABELS[booking.service_type]}</span>
+              )}
+              <span>
+                ⚖️ {booking.estimated_weight_kg}kg ×{" "}
+                {shop && service
+                  ? `${APP_CONFIG.currency}${service.price_per_kg}/kg`
+                  : "—"}
+              </span>
+              {shop && (
+                <span>
+                  🚚 {APP_CONFIG.currency}
+                  {delFee.toFixed(0)} delivery
+                </span>
+              )}
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-xs text-primary-600 font-semibold">
+                Est. Total
+              </p>
+              <p className="text-lg font-extrabold text-primary">
+                {total !== null
+                  ? `${APP_CONFIG.currency}${total.toFixed(2)}`
+                  : "—"}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Step content */}
         <div className="page-enter">

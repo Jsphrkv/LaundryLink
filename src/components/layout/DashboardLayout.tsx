@@ -20,6 +20,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useAuthStore } from "../../store/auth.store";
+import { useUnreadNotifications } from "../../hooks/useUnreadNotifications";
 
 const NAV_ITEMS: Record<
   string,
@@ -71,6 +72,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navItems = NAV_ITEMS[role] ?? [];
   const config = ROLE_CONFIG[role] ?? ROLE_CONFIG.customer;
   const roots = ["/customer", "/rider", "/shop", "/admin"];
+  const unreadCount = useUnreadNotifications();
 
   return (
     <>
@@ -126,6 +128,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
               location.pathname === item.path ||
               (!roots.includes(item.path) &&
                 location.pathname.startsWith(item.path));
+            const isNotif = item.path.includes("notifications");
             return (
               <Link
                 key={item.path}
@@ -140,7 +143,15 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
               >
                 <item.icon size={18} />
                 <span className="flex-1">{item.label}</span>
-                {active && <ChevronRight size={14} className="text-primary" />}
+                {/* Notification badge */}
+                {isNotif && unreadCount > 0 && (
+                  <span className="min-w-[20px] h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-extrabold flex items-center justify-center">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+                {active && !isNotif && (
+                  <ChevronRight size={14} className="text-primary" />
+                )}
               </Link>
             );
           })}

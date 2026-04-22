@@ -567,6 +567,7 @@ function ShopInfoCard() {
   const [shop, setShop] = useState<ShopProfile | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [suggestions, setSuggestions] = useState<
     { place_name: string; lat: number; lng: number }[]
   >([]);
@@ -601,6 +602,33 @@ function ShopInfoCard() {
       const s = await addressService.searchAddresses(val);
       setSuggestions(s);
     } else setSuggestions([]);
+  };
+
+  // Upload logo to Supabase Storage
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !shop) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Image must be under 2MB");
+      return;
+    }
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop();
+      const path = `${shop.id}/logo.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from("shop-logos")
+        .upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+      const { data } = supabase.storage.from("shop-logos").getPublicUrl(path);
+      await shopService.updateShop(shop.id, { logo_url: data.publicUrl });
+      setShop((prev) => (prev ? { ...prev, logo_url: data.publicUrl } : prev));
+      toast.success("Logo uploaded!");
+    } catch {
+      toast.error("Could not upload logo");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleSave = async () => {
@@ -645,6 +673,42 @@ function ShopInfoCard() {
             Edit
           </Button>
         )}
+      </div>
+
+      {/* Logo upload */}
+      <div className="flex items-center gap-4 mb-5">
+        <div className="w-20 h-20 rounded-2xl bg-gray-100 border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden shrink-0">
+          {shop.logo_url ? (
+            <img
+              src={shop.logo_url}
+              alt="Shop logo"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <span className="text-3xl">🏪</span>
+          )}
+        </div>
+        <div>
+          <p className="text-sm font-bold text-gray-700 mb-1">Shop Logo</p>
+          <p className="text-xs text-gray-400 mb-2">PNG or JPG, max 2MB</p>
+          <label
+            className={clsx(
+              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all",
+              uploading
+                ? "bg-gray-100 text-gray-400"
+                : "bg-primary-50 text-primary hover:bg-primary-100",
+            )}
+          >
+            {uploading ? "⏳ Uploading..." : "📸 Upload Logo"}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleLogoUpload}
+              disabled={uploading}
+            />
+          </label>
+        </div>
       </div>
 
       {editing ? (

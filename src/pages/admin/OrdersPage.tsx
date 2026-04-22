@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, RefreshCw } from "lucide-react";
+import toast from "react-hot-toast";
 import supabase from "../../services/supabase";
 import { DashboardLayout } from "../../components/layout/DashboardLayout";
 import {
@@ -8,6 +9,8 @@ import {
   Input,
   StatusBadge,
   Modal,
+  Button,
+  Select,
 } from "../../components/ui";
 import {
   SERVICE_LABELS,
@@ -16,12 +19,27 @@ import {
 } from "../../constants";
 import clsx from "clsx";
 
+const ALL_STATUSES = [
+  "pending",
+  "rider_assigned",
+  "rider_on_way_pickup",
+  "picked_up",
+  "confirmed",
+  "washing",
+  "ready_for_delivery",
+  "rider_on_way_delivery",
+  "delivered",
+  "cancelled",
+];
+
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<any | null>(null);
+  const [overrideStatus, setOverrideStatus] = useState("");
+  const [overriding, setOverriding] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -39,6 +57,71 @@ export default function AdminOrdersPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const handleOverride = async () => {
+    if (!selected || !overrideStatus) return;
+    setOverriding(true);
+    try {
+      const { error } = await supabase
+        .from("orders")
+        .update({
+          status: overrideStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selected.id);
+      if (error) throw error;
+
+      // Log to status history
+      await supabase.from("order_status_history").insert({
+        order_id: selected.id,
+        status: overrideStatus,
+        note: "Status overridden by Admin",
+        created_by: (await supabase.auth.getUser()).data.user?.id,
+      });
+
+      toast.success(
+        `Status updated to: ${ORDER_STATUS_LABELS[overrideStatus]}`,
+      );
+      setSelected(null);
+      await load();
+    } catch (err: any) {
+      toast.error(err.message || "Could not override status");
+    } finally {
+      setOverriding(false);
+    }
+  };
+
+  const handleMarkPaid = async () => {
+    if (!selected) return;
+    try {
+      await supabase
+        .from("orders")
+        .update({ payment_status: "paid" })
+        .eq("id", selected.id);
+      toast.success("Marked as paid");
+      setSelected((prev) =>
+        prev ? { ...prev, payment_status: "paid" } : prev,
+      );
+      await load();
+    } catch {
+      toast.error("Could not update payment");
+    }
+  };
+
+  const handleCancelOrder = async () => {
+    if (!selected || !confirm(`Cancel order ${selected.order_number}?`)) return;
+    try {
+      await supabase
+        .from("orders")
+        .update({ status: "cancelled", updated_at: new Date().toISOString() })
+        .eq("id", selected.id);
+      toast.success("Order cancelled");
+      setSelected(null);
+      await load();
+    } catch {
+      toast.error("Could not cancel order");
+    }
+  };
 
   const STATUS_FILTERS = [
     "all",
@@ -161,10 +244,13 @@ export default function AdminOrdersPage() {
                   </td>
                   <td className="px-4 py-3">
                     <button
-                      onClick={() => setSelected(order)}
+                      onClick={() => {
+                        setSelected(order);
+                        setOverrideStatus(order.status);
+                      }}
                       className="text-xs font-bold text-primary hover:underline"
                     >
-                      View
+                      Manage
                     </button>
                   </td>
                 </tr>
@@ -181,33 +267,39 @@ export default function AdminOrdersPage() {
         </div>
       </Card>
 
-      {/* Order detail modal */}
+      {/* Order management modal */}
       <Modal
         open={!!selected}
         onClose={() => setSelected(null)}
-        title={`Order ${selected?.order_number}`}
+        title={`Manage ${selected?.order_number}`}
         maxWidth="max-w-lg"
       >
         {selected && (
-          <div className="space-y-3 text-sm">
-            <StatusBadge status={selected.status} />
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <StatusBadge status={selected.status} />
+              {selected.payment_status === "paid" ? (
+                <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                  ✅ Paid
+                </span>
+              ) : (
+                <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                  ⏳ Unpaid
+                </span>
+              )}
+            </div>
+
+            {/* Order details grid */}
             <div className="grid grid-cols-2 gap-2">
               {[
                 ["Customer", selected.customer?.full_name],
                 ["Phone", selected.customer?.phone],
                 ["Shop", selected.shop?.shop_name],
                 ["Service", SERVICE_LABELS[selected.service_type]],
-                ["Bags", `${selected.bag_count} bags`],
                 ["Weight", `~${selected.estimated_weight_kg}kg`],
-                ["Pickup", `${selected.scheduled_pickup_date}`],
+                ["Bags", `${selected.bag_count} bags`],
+                ["Pickup Date", selected.scheduled_pickup_date],
                 ["Time Slot", selected.scheduled_pickup_time],
-                [
-                  "Payment",
-                  selected.payment_method === "cash_on_delivery"
-                    ? "💵 COD"
-                    : "📱 GCash",
-                ],
-                ["Pay Status", selected.payment_status],
                 ["Rider", selected.rider?.user?.full_name ?? "Not assigned"],
                 ["Address", selected.pickup_address?.full_address],
               ].map(([label, value]) => (
@@ -222,12 +314,79 @@ export default function AdminOrdersPage() {
                 </div>
               ))}
             </div>
+
             <div className="flex justify-between items-center py-2 px-3 bg-primary-50 rounded-xl">
               <span className="font-bold text-gray-700">Total</span>
               <span className="text-xl font-extrabold text-primary">
                 {APP_CONFIG.currency}
                 {selected.total_amount?.toFixed(2)}
               </span>
+            </div>
+
+            {/* ── Admin Override Controls ── */}
+            <div className="border-t border-gray-100 pt-4 space-y-3">
+              <p className="text-sm font-extrabold text-gray-700 flex items-center gap-2">
+                <RefreshCw size={14} /> Admin Override
+              </p>
+
+              {/* Status override dropdown */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+                  Force Status Change
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={overrideStatus}
+                    onChange={(e) => setOverrideStatus(e.target.value)}
+                    className="flex-1 rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                  >
+                    {ALL_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {ORDER_STATUS_LABELS[s] ?? s}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    size="sm"
+                    loading={overriding}
+                    disabled={overrideStatus === selected.status}
+                    onClick={handleOverride}
+                    leftIcon={<RefreshCw size={14} />}
+                  >
+                    Apply
+                  </Button>
+                </div>
+                {overrideStatus === selected.status && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Select a different status to apply
+                  </p>
+                )}
+              </div>
+
+              {/* Quick actions */}
+              <div className="flex gap-2">
+                {selected.payment_status !== "paid" && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    fullWidth
+                    onClick={handleMarkPaid}
+                    leftIcon={<span className="text-sm">💰</span>}
+                  >
+                    Mark as Paid
+                  </Button>
+                )}
+                {!["delivered", "cancelled"].includes(selected.status) && (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    fullWidth
+                    onClick={handleCancelOrder}
+                  >
+                    Cancel Order
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         )}

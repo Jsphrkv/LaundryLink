@@ -8,6 +8,7 @@ import ResetPasswordPage from "../pages/auth/ResetPasswordPage";
 import CustomerHomePage from "../pages/customer/HomePage";
 import BookingPage from "../pages/customer/BookingPage";
 import { OrdersPage, OrderDetailPage } from "../pages/customer/OrdersPage";
+import NotificationsPage from "../pages/customer/NotificationsPage";
 import { RiderDashboardPage } from "../pages/rider/RiderDashboard";
 import RiderOrdersPage from "../pages/rider/OrdersPage";
 import RiderEarningsPage from "../pages/rider/EarningsPage";
@@ -27,18 +28,6 @@ import {
 import ProfilePage from "../pages/profile/ProfilePage";
 import { DashboardLayout } from "../components/layout/DashboardLayout";
 import { EmptyState } from "../components/ui";
-
-function NotificationsPage() {
-  return (
-    <DashboardLayout title="Notifications">
-      <EmptyState
-        emoji="🔔"
-        title="Notifications"
-        subtitle="You have no new notifications."
-      />
-    </DashboardLayout>
-  );
-}
 
 function HomeRedirect() {
   const { user } = useAuthStore();
