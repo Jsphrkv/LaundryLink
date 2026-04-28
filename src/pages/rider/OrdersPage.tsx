@@ -245,41 +245,125 @@ export default function RiderOrdersPage() {
                   <StatusBadge status={order.status} />
                 </div>
 
-                {/* Route */}
-                <div className="bg-gray-50 rounded-xl p-3 mb-3 space-y-2">
-                  <div className="flex items-start gap-2">
-                    <MapPin
-                      size={13}
-                      className="text-green-500 mt-0.5 shrink-0"
-                    />
-                    <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">
-                        Customer
-                      </p>
-                      <p className="text-sm font-semibold text-gray-800">
-                        {(order as any).pickup_address?.full_address}
-                      </p>
+                {/* Route — swaps dynamically based on delivery phase */}
+                {(() => {
+                  // Phase A (going TO shop): rider_assigned, rider_on_way_pickup, picked_up
+                  // Phase B (going back TO customer): ready_for_delivery, rider_on_way_delivery
+                  // Waiting phases: confirmed, washing — show both as info
+                  const isReturnPhase = [
+                    "ready_for_delivery",
+                    "rider_on_way_delivery",
+                  ].includes(order.status);
+                  const isWaiting = ["confirmed", "washing"].includes(
+                    order.status,
+                  );
+
+                  if (isWaiting) {
+                    return (
+                      <div className="bg-blue-50 rounded-xl p-3 mb-3 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <MapPin
+                            size={13}
+                            className="text-primary mt-0.5 shrink-0"
+                          />
+                          <div>
+                            <p className="text-[10px] font-bold text-blue-500 uppercase">
+                              Laundry at Shop
+                            </p>
+                            <p className="text-sm font-semibold text-gray-800">
+                              {(order as any).shop?.shop_name}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              {(order as any).shop?.address}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="border-l-2 border-dashed border-blue-200 ml-1.5 h-3" />
+                        <div className="flex items-start gap-2">
+                          <MapPin
+                            size={13}
+                            className="text-green-500 mt-0.5 shrink-0"
+                          />
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase">
+                              Will Deliver To
+                            </p>
+                            <p className="text-sm font-semibold text-gray-800">
+                              {(order as any).pickup_address?.full_address}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const fromLabel = isReturnPhase
+                    ? "PICKUP FROM SHOP"
+                    : "PICKUP FROM CUSTOMER";
+                  const toLabel = isReturnPhase
+                    ? "DELIVER TO CUSTOMER"
+                    : "DROP OFF AT SHOP";
+                  const fromName = isReturnPhase
+                    ? (order as any).shop?.shop_name
+                    : (order as any).pickup_address?.full_address;
+                  const fromSub = isReturnPhase
+                    ? (order as any).shop?.address
+                    : "";
+                  const toName = isReturnPhase
+                    ? (order as any).pickup_address?.full_address
+                    : (order as any).shop?.shop_name;
+                  const toSub = isReturnPhase
+                    ? ""
+                    : (order as any).shop?.address;
+
+                  return (
+                    <div className="bg-gray-50 rounded-xl p-3 mb-3 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <MapPin
+                          size={13}
+                          className={
+                            isReturnPhase
+                              ? "text-primary mt-0.5 shrink-0"
+                              : "text-green-500 mt-0.5 shrink-0"
+                          }
+                        />
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase">
+                            {fromLabel}
+                          </p>
+                          <p className="text-sm font-semibold text-gray-800">
+                            {fromName}
+                          </p>
+                          {fromSub && (
+                            <p className="text-xs text-gray-400">{fromSub}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="border-l-2 border-dashed border-gray-200 ml-1.5 h-3" />
+                      <div className="flex items-start gap-2">
+                        <MapPin
+                          size={13}
+                          className={
+                            isReturnPhase
+                              ? "text-green-500 mt-0.5 shrink-0"
+                              : "text-primary mt-0.5 shrink-0"
+                          }
+                        />
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase">
+                            {toLabel}
+                          </p>
+                          <p className="text-sm font-semibold text-gray-800">
+                            {toName}
+                          </p>
+                          {toSub && (
+                            <p className="text-xs text-gray-400">{toSub}</p>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="border-l-2 border-dashed border-gray-200 ml-1.5 h-3" />
-                  <div className="flex items-start gap-2">
-                    <MapPin
-                      size={13}
-                      className="text-primary mt-0.5 shrink-0"
-                    />
-                    <div>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">
-                        Laundry Shop
-                      </p>
-                      <p className="text-sm font-semibold text-gray-800">
-                        {(order as any).shop?.shop_name}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {(order as any).shop?.address}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 <div className="grid grid-cols-2 gap-2 mb-3 text-xs text-gray-500">
                   <span>👕 {SERVICE_LABELS[order.service_type]}</span>

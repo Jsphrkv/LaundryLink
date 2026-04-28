@@ -12,6 +12,7 @@ import {
   CheckCircle,
   ArrowLeft,
   Loader2,
+  X,
 } from "lucide-react";
 import { useBookingStore } from "../../store/booking.store";
 import { useAuthStore } from "../../store/auth.store";
@@ -247,33 +248,58 @@ function StepAddress() {
       ) : (
         <>
           {addresses.map((addr) => (
-            <div
-              key={addr.id}
-              onClick={() => booking.setPickupAddress(addr)}
-              className={clsx(
-                "flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all mb-2",
-                booking.pickup_address?.id === addr.id
-                  ? "border-primary bg-primary-50"
-                  : "border-gray-100 hover:border-gray-200",
-              )}
-            >
-              <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg shrink-0">
-                {addr.label.toLowerCase() === "home"
-                  ? "🏠"
-                  : addr.label.toLowerCase() === "office"
-                    ? "🏢"
-                    : "📍"}
+            <div key={addr.id} className="relative mb-2">
+              <div
+                onClick={() => booking.setPickupAddress(addr)}
+                className={clsx(
+                  "flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all pr-10",
+                  booking.pickup_address?.id === addr.id
+                    ? "border-primary bg-primary-50"
+                    : "border-gray-100 hover:border-gray-200",
+                )}
+              >
+                <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg shrink-0">
+                  {addr.label.toLowerCase() === "home"
+                    ? "🏠"
+                    : addr.label.toLowerCase() === "office"
+                      ? "🏢"
+                      : "📍"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm text-gray-900">
+                    {addr.label}
+                  </p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {addr.full_address}
+                  </p>
+                  <p className="text-xs text-gray-400">{addr.city}</p>
+                </div>
+                {booking.pickup_address?.id === addr.id && (
+                  <CheckCircle className="text-primary shrink-0" size={20} />
+                )}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-sm text-gray-900">{addr.label}</p>
-                <p className="text-xs text-gray-400 truncate">
-                  {addr.full_address}
-                </p>
-                <p className="text-xs text-gray-400">{addr.city}</p>
-              </div>
-              {booking.pickup_address?.id === addr.id && (
-                <CheckCircle className="text-primary shrink-0" size={20} />
-              )}
+              {/* Delete address button */}
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (!confirm("Remove this address?")) return;
+                  try {
+                    await addressService.deleteAddress(addr.id);
+                    setAddresses((prev) =>
+                      prev.filter((a) => a.id !== addr.id),
+                    );
+                    if (booking.pickup_address?.id === addr.id)
+                      booking.setPickupAddress(undefined as any);
+                    toast.success("Address removed");
+                  } catch {
+                    toast.error("Could not delete address");
+                  }
+                }}
+                className="absolute top-1/2 right-3 -translate-y-1/2 w-7 h-7 rounded-full bg-red-50 border border-red-100 flex items-center justify-center text-red-400 hover:bg-red-100 hover:text-red-600 transition-all"
+                title="Remove address"
+              >
+                <X size={13} />
+              </button>
             </div>
           ))}
 

@@ -171,7 +171,7 @@ export function RiderDashboardPage() {
         <div className="grid grid-cols-3 gap-3 text-center">
           {[
             {
-              l: "Today's Earnings",
+              l: "Total Earnings",
               v: `${APP_CONFIG.currency}${earnings.toFixed(0)}`,
             },
             { l: "Rating", v: `⭐ ${profile?.rating?.toFixed(1) ?? "5.0"}` },

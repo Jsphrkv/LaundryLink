@@ -42,6 +42,7 @@ const NAV_ITEMS: Record<
   shop_owner: [
     { label: "Dashboard", path: "/shop", icon: LayoutDashboard },
     { label: "Orders", path: "/shop/orders", icon: ClipboardList },
+    { label: "Earnings", path: "/shop/earnings", icon: TrendingUp },
     { label: "Services", path: "/shop/services", icon: Store },
     { label: "Profile", path: "/shop/profile", icon: User },
   ],

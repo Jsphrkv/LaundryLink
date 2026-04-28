@@ -46,7 +46,7 @@ export default function ProfilePage() {
     <DashboardLayout title="Profile">
       <div className="max-w-2xl mx-auto space-y-5">
         <PersonalInfoCard />
-        {(isCustomer || isRider) && <AddressBook />}
+        {isCustomer && <AddressBook />}
         {isShop && <ShopInfoCard />}
         {isRider && <RiderVehicleCard />}
         <ChangePasswordCard />

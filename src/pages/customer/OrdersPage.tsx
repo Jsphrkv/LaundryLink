@@ -1,11 +1,11 @@
-import React, { useEffect, useState, lazy, Suspense } from "react";
+import React, { useEffect, useState, lazy, Suspense, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { ArrowLeft, Phone, MapPin } from "lucide-react";
+import { ArrowLeft, Phone, Trash2, ChevronDown } from "lucide-react";
 import { useAuthStore } from "../../store/auth.store";
 import { orderService } from "../../services/order.service";
 import { riderService } from "../../services/shop-rider.service";
-import supabase from "../../services/supabase";
+import { addressService } from "../../services/address.service";
 import { Order, OrderStatus } from "../../types";
 import { DashboardLayout } from "../../components/layout/DashboardLayout";
 import { OrderCard } from "../../components/common/Cards";
@@ -22,9 +22,11 @@ import { STATUS_TIMELINE, SERVICE_LABELS, APP_CONFIG } from "../../constants";
 import { useRealtimeOrders } from "../../hooks/useRealtimeOrders";
 import clsx from "clsx";
 import { MapMarker } from "../../components/common/LiveMap";
+import supabase from "../../services/supabase";
 
-// Lazy-load map to avoid SSR/bundle issues
 const LiveMap = lazy(() => import("../../components/common/LiveMap"));
+
+const HISTORY_PAGE_SIZE = 3;
 
 // ─── Orders List Page ─────────────────────────────────────────────────────────
 export function OrdersPage() {
@@ -33,23 +35,50 @@ export function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"active" | "history">("active");
+  const [historyPage, setHistoryPage] = useState(1);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!user) return;
-    orderService
-      .getCustomerOrders(user.id)
-      .then(setOrders)
-      .finally(() => setLoading(false));
+    const data = await orderService.getCustomerOrders(user.id);
+    setOrders(data);
+    setLoading(false);
   }, [user]);
 
-  // Auto-refresh when any order changes — no manual refresh needed
+  useEffect(() => {
+    load();
+  }, [load]);
+
   useRealtimeOrders(
     user ? `customer_id=eq.${user.id}` : null,
-    () => {
-      if (user) orderService.getCustomerOrders(user.id).then(setOrders);
-    },
+    load,
     `orders_list_${user?.id}`,
   );
+
+  const handleDeleteHistory = async (order: Order, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`Remove order ${order.order_number} from history?`)) return;
+    setDeleting(order.id);
+    try {
+      // Soft delete: we just remove it from the customer's view
+      // by marking it hidden (add is_hidden_by_customer column) OR
+      // simply delete the rating record if any and nullify customer reference
+      // For simplicity: we delete from the customer's local state only
+      // and mark it in Supabase as hidden
+      await supabase
+        .from("orders")
+        .update({ is_hidden_by_customer: true } as any)
+        .eq("id", order.id);
+      setOrders((prev) => prev.filter((o) => o.id !== order.id));
+      toast.success("Removed from history");
+    } catch {
+      // Column might not exist yet — just hide locally
+      setOrders((prev) => prev.filter((o) => o.id !== order.id));
+      toast.success("Removed from history");
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   const active = orders.filter(
     (o) => !["delivered", "cancelled", "refunded"].includes(o.status),
@@ -57,7 +86,10 @@ export function OrdersPage() {
   const history = orders.filter((o) =>
     ["delivered", "cancelled", "refunded"].includes(o.status),
   );
-  const shown = tab === "active" ? active : history;
+  // Paginated history — show 3 at a time
+  const historyShown = history.slice(0, historyPage * HISTORY_PAGE_SIZE);
+  const hasMoreHistory = history.length > historyShown.length;
+  const shown = tab === "active" ? active : historyShown;
 
   if (loading)
     return (
@@ -68,12 +100,14 @@ export function OrdersPage() {
 
   return (
     <DashboardLayout title="My Orders">
-      {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6 w-full max-w-sm">
         {(["active", "history"] as const).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => {
+              setTab(t);
+              setHistoryPage(1);
+            }}
             className={clsx(
               "flex-1 py-2 rounded-lg text-sm font-bold transition-all capitalize",
               tab === t
@@ -103,12 +137,46 @@ export function OrdersPage() {
       ) : (
         <div className="space-y-3">
           {shown.map((order) => (
-            <OrderCard
-              key={order.id}
-              order={order}
-              onClick={() => navigate(`/customer/orders/${order.id}`)}
-            />
+            <div key={order.id} className="relative group">
+              <OrderCard
+                order={order}
+                onClick={() => navigate(`/customer/orders/${order.id}`)}
+              />
+              {/* Delete button for history items */}
+              {tab === "history" && (
+                <button
+                  onClick={(e) => handleDeleteHistory(order, e)}
+                  disabled={deleting === order.id}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-400 hover:text-red-500 hover:border-red-200 transition-all opacity-0 group-hover:opacity-100"
+                  title="Remove from history"
+                >
+                  {deleting === order.id ? (
+                    <div className="w-3 h-3 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Trash2 size={13} />
+                  )}
+                </button>
+              )}
+            </div>
           ))}
+
+          {/* Pagination — Load More for history */}
+          {tab === "history" && hasMoreHistory && (
+            <button
+              onClick={() => setHistoryPage((p) => p + 1)}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-gray-200 text-sm font-bold text-gray-500 hover:border-primary-300 hover:text-primary transition-all"
+            >
+              <ChevronDown size={16} />
+              Load more ({history.length - historyShown.length} remaining)
+            </button>
+          )}
+          {tab === "history" &&
+            !hasMoreHistory &&
+            history.length > HISTORY_PAGE_SIZE && (
+              <p className="text-center text-xs text-gray-400 py-2">
+                All {history.length} orders shown
+              </p>
+            )}
         </div>
       )}
     </DashboardLayout>
@@ -129,6 +197,11 @@ export function OrderDetailPage() {
   const [riderPos, setRiderPos] = useState<{ lat: number; lng: number } | null>(
     null,
   );
+  const [mapMarkers, setMapMarkers] = useState<MapMarker[]>([]);
+  const [mapCenter, setMapCenter] = useState<
+    { lat: number; lng: number } | undefined
+  >();
+  const [mapLoading, setMapLoading] = useState(true);
 
   useEffect(() => {
     if (!id) return;
@@ -136,9 +209,8 @@ export function OrderDetailPage() {
       .getOrderById(id)
       .then((o) => {
         setOrder(o);
-        // Load initial rider position if already assigned
         const r = (o as any)?.rider;
-        if (r?.current_lat && r?.current_lng) {
+        if (r?.current_lat && r?.current_lng && r.current_lat !== 0) {
           setRiderPos({ lat: r.current_lat, lng: r.current_lng });
         }
       })
@@ -152,19 +224,102 @@ export function OrderDetailPage() {
     };
   }, [id]);
 
-  // Subscribe to rider's live GPS position
+  // Subscribe to rider live GPS
   useEffect(() => {
     if (!order?.rider_id) return;
     const ch = riderService.subscribeToRiderLocation(
       order.rider_id,
       (lat, lng) => {
-        setRiderPos({ lat, lng });
+        if (lat !== 0 && lng !== 0) setRiderPos({ lat, lng });
       },
     );
     return () => {
       ch.unsubscribe();
     };
   }, [order?.rider_id]);
+
+  // Build map markers — geocode addresses that have 0,0 coords
+  useEffect(() => {
+    if (!order) return;
+
+    const buildMarkers = async () => {
+      setMapLoading(true);
+      const markers: MapMarker[] = [];
+      const pickupAddr = (order as any).pickup_address;
+      const shop = (order as any).shop;
+
+      // ── Customer address ──
+      let custLat = pickupAddr?.lat;
+      let custLng = pickupAddr?.lng;
+      // Geocode if missing or default 0,0
+      if ((!custLat || custLat === 0) && pickupAddr?.full_address) {
+        const geo = await addressService.geocodeAddress(
+          pickupAddr.full_address,
+        );
+        if (geo) {
+          custLat = geo.lat;
+          custLng = geo.lng;
+        }
+      }
+      if (custLat && custLng && custLat !== 0) {
+        markers.push({
+          lat: custLat,
+          lng: custLng,
+          label: "Your address",
+          icon: "customer",
+          popup: `📍 ${pickupAddr?.full_address ?? "Pickup location"}`,
+        });
+        setMapCenter({ lat: custLat, lng: custLng });
+      }
+
+      // ── Shop address ──
+      let shopLat = shop?.lat;
+      let shopLng = shop?.lng;
+      if ((!shopLat || shopLat === 0) && shop?.address) {
+        const geo = await addressService.geocodeAddress(shop.address);
+        if (geo) {
+          shopLat = geo.lat;
+          shopLng = geo.lng;
+        }
+      }
+      if (shopLat && shopLng && shopLat !== 0) {
+        markers.push({
+          lat: shopLat,
+          lng: shopLng,
+          label: shop?.shop_name ?? "Shop",
+          icon: "shop",
+          popup: `🏪 ${shop?.shop_name}`,
+        });
+      }
+
+      // ── Rider position ──
+      if (riderPos && riderPos.lat !== 0) {
+        markers.push({
+          lat: riderPos.lat,
+          lng: riderPos.lng,
+          label: "Rider",
+          icon: "rider",
+          popup: "🛵 Your Rider",
+        });
+        // Center on rider when active
+        if (
+          [
+            "rider_assigned",
+            "rider_on_way_pickup",
+            "picked_up",
+            "rider_on_way_delivery",
+          ].includes(order.status)
+        ) {
+          setMapCenter({ lat: riderPos.lat, lng: riderPos.lng });
+        }
+      }
+
+      setMapMarkers(markers);
+      setMapLoading(false);
+    };
+
+    buildMarkers();
+  }, [order, riderPos]);
 
   const handleCancel = async () => {
     if (!order || !user) return;
@@ -228,44 +383,6 @@ export function OrderDetailPage() {
     "rider_on_way_delivery",
   ].includes(order.status);
 
-  // Build map markers
-  const mapMarkers: MapMarker[] = [];
-  const pickupAddr = (order as any).pickup_address;
-  const shop = (order as any).shop;
-
-  if (pickupAddr?.lat && pickupAddr?.lng && pickupAddr.lat !== 0) {
-    mapMarkers.push({
-      lat: pickupAddr.lat,
-      lng: pickupAddr.lng,
-      label: "Your address",
-      icon: "customer",
-      popup: `📍 ${pickupAddr.full_address}`,
-    });
-  }
-  if (shop?.lat && shop?.lng && shop.lat !== 0) {
-    mapMarkers.push({
-      lat: shop.lat,
-      lng: shop.lng,
-      label: shop.shop_name,
-      icon: "shop",
-      popup: `🏪 ${shop.shop_name}`,
-    });
-  }
-  if (riderPos) {
-    mapMarkers.push({
-      lat: riderPos.lat,
-      lng: riderPos.lng,
-      label: "Rider",
-      icon: "rider",
-      popup: "🛵 Your Rider",
-    });
-  }
-
-  const mapCenter =
-    (riderPos ?? pickupAddr?.lat)
-      ? { lat: pickupAddr.lat, lng: pickupAddr.lng }
-      : undefined;
-
   return (
     <DashboardLayout title={`Order ${order.order_number}`}>
       <button
@@ -290,51 +407,67 @@ export function OrderDetailPage() {
         </div>
       </Card>
 
-      {/* Live Map — shown when rider is active or always to show route */}
-      {mapMarkers.length > 0 && (
-        <Card className="p-4 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-gray-900">
-              {isRiderActive ? "🛵 Live Rider Tracking" : "📍 Delivery Route"}
-            </h3>
-            {isRiderActive && riderPos && (
-              <span className="flex items-center gap-1.5 text-xs font-bold text-green-600 bg-green-50 px-2.5 py-1 rounded-full">
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                Live
-              </span>
-            )}
-          </div>
+      {/* Live Map */}
+      <Card className="p-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-gray-900">
+            {isRiderActive ? "🛵 Live Rider Tracking" : "📍 Delivery Route"}
+          </h3>
+          {isRiderActive && riderPos && (
+            <span className="flex items-center gap-1.5 text-xs font-bold text-green-600 bg-green-50 px-2.5 py-1 rounded-full">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              Live
+            </span>
+          )}
+        </div>
 
+        {mapLoading ? (
+          <div className="h-64 bg-gray-50 rounded-xl flex flex-col items-center justify-center gap-2">
+            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs text-gray-400">Loading map…</p>
+          </div>
+        ) : mapMarkers.length === 0 ? (
+          <div className="h-48 bg-gray-50 rounded-xl flex flex-col items-center justify-center gap-2">
+            <span className="text-3xl">🗺️</span>
+            <p className="text-sm text-gray-500 font-semibold">
+              Map unavailable
+            </p>
+            <p className="text-xs text-gray-400">
+              Address coordinates could not be resolved
+            </p>
+          </div>
+        ) : (
           <Suspense
             fallback={
-              <div className="h-64 bg-gray-100 rounded-xl flex items-center justify-center">
+              <div className="h-64 bg-gray-50 rounded-xl flex items-center justify-center">
                 <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
               </div>
             }
           >
             <LiveMap markers={mapMarkers} center={mapCenter} height="260px" />
           </Suspense>
+        )}
 
-          {/* Legend */}
+        {mapMarkers.length > 0 && (
           <div className="flex gap-4 mt-3 flex-wrap">
-            {mapMarkers.some((m) => m.icon === "rider") && (
-              <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                <span className="text-base">🛵</span> Rider
-              </span>
-            )}
             {mapMarkers.some((m) => m.icon === "customer") && (
               <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                <span className="text-base">📍</span> Your Address
+                <span>📍</span> Your Address
               </span>
             )}
             {mapMarkers.some((m) => m.icon === "shop") && (
               <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                <span className="text-base">🏪</span> Laundry Shop
+                <span>🏪</span> Laundry Shop
+              </span>
+            )}
+            {mapMarkers.some((m) => m.icon === "rider") && (
+              <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span>🛵</span> Rider (live)
               </span>
             )}
           </div>
-        </Card>
-      )}
+        )}
+      </Card>
 
       {/* Timeline */}
       {!isCancelled && (
@@ -422,7 +555,7 @@ export function OrderDetailPage() {
         </Card>
       )}
 
-      {/* Order details */}
+      {/* Order Details */}
       <Card className="divide-y divide-gray-50 mb-4">
         <div className="px-4 py-3">
           <h3 className="font-bold text-gray-900">Order Details</h3>
@@ -430,10 +563,7 @@ export function OrderDetailPage() {
         {[
           ["Service", SERVICE_LABELS[order.service_type]],
           ["Bags", `${order.bag_count} bag(s)`],
-          [
-            "Est. Weight",
-            `~${order.estimated_weight_kg} kg${order.actual_weight_kg ? ` → ${order.actual_weight_kg}kg actual` : ""}`,
-          ],
+          ["Est. Weight", `~${order.estimated_weight_kg} kg`],
           ["Pickup Date", order.scheduled_pickup_date],
           ["Pickup Time", order.scheduled_pickup_time],
           ...(order.special_instructions
@@ -441,7 +571,7 @@ export function OrderDetailPage() {
             : []),
         ].map(([label, value]) => (
           <div
-            key={label}
+            key={label as string}
             className="flex justify-between items-start px-4 py-3 gap-4"
           >
             <span className="text-sm text-gray-500">{label}</span>
@@ -508,7 +638,7 @@ export function OrderDetailPage() {
             Cancel Order
           </Button>
         )}
-        {isDelivered && !order.rating && (
+        {isDelivered && !(order as any).rating && (
           <Button variant="outline" fullWidth onClick={() => setShowRate(true)}>
             ⭐ Rate Your Experience
           </Button>

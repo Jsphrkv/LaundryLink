@@ -3,7 +3,7 @@ import toast from "react-hot-toast";
 import { Bell, Send, Users, UserCheck, Store, Globe } from "lucide-react";
 import supabase from "../../services/supabase";
 import { DashboardLayout } from "../../components/layout/DashboardLayout";
-import { Card, Button, Input, Textarea } from "../../components/ui";
+import { Card, Button, Input } from "../../components/ui";
 import { APP_CONFIG } from "../../constants";
 
 // ─── Send Alert Page ──────────────────────────────────────────────────────────
@@ -214,6 +214,8 @@ export function AdminSendAlertPage() {
 // ─── Settings Page ────────────────────────────────────────────────────────────
 export function AdminSettingsPage() {
   const [saving, setSaving] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [purging, setPurging] = useState(false);
 
   const handleSave = (section: string) => {
     setSaving(section);
@@ -221,6 +223,49 @@ export function AdminSettingsPage() {
       setSaving(null);
       toast.success("Settings saved!");
     }, 800);
+  };
+
+  const clearOldNotifications = async () => {
+    if (!confirm("Delete all read notifications older than 7 days?")) return;
+    setClearing(true);
+    try {
+      const cutoff = new Date(
+        Date.now() - 7 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      const { error, count } = await supabase
+        .from("notifications")
+        .delete({ count: "exact" })
+        .eq("is_read", true)
+        .lt("created_at", cutoff);
+      if (error) throw error;
+      toast.success(`Cleared ${count ?? 0} old notifications`);
+    } catch (err: any) {
+      toast.error(err.message || "Could not clear notifications");
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const purgeCancelledOrders = async () => {
+    if (
+      !confirm(
+        "Permanently delete all cancelled orders? This cannot be undone.",
+      )
+    )
+      return;
+    setPurging(true);
+    try {
+      const { error, count } = await supabase
+        .from("orders")
+        .delete({ count: "exact" })
+        .eq("status", "cancelled");
+      if (error) throw error;
+      toast.success(`Purged ${count ?? 0} cancelled orders`);
+    } catch (err: any) {
+      toast.error(err.message || "Could not purge orders");
+    } finally {
+      setPurging(false);
+    }
   };
 
   return (
@@ -296,16 +341,28 @@ export function AdminSettingsPage() {
           </p>
           <div className="space-y-2">
             <button
-              onClick={() => toast("Feature coming soon", { icon: "ℹ️" })}
-              className="w-full py-2.5 rounded-xl border-2 border-amber-200 text-amber-700 font-bold text-sm hover:bg-amber-50 transition-all"
+              onClick={clearOldNotifications}
+              disabled={clearing}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-amber-200 text-amber-700 font-bold text-sm hover:bg-amber-50 transition-all disabled:opacity-60"
             >
-              🔄 Clear Old Notifications
+              {clearing ? (
+                <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                "🔄"
+              )}
+              Clear Old Read Notifications
             </button>
             <button
-              onClick={() => toast("Feature coming soon", { icon: "ℹ️" })}
-              className="w-full py-2.5 rounded-xl border-2 border-red-200 text-red-600 font-bold text-sm hover:bg-red-50 transition-all"
+              onClick={purgeCancelledOrders}
+              disabled={purging}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-red-200 text-red-600 font-bold text-sm hover:bg-red-50 transition-all disabled:opacity-60"
             >
-              🗑️ Purge Cancelled Orders
+              {purging ? (
+                <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                "🗑️"
+              )}
+              Purge All Cancelled Orders
             </button>
           </div>
         </Card>

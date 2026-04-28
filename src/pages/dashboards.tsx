@@ -261,31 +261,95 @@ export function RiderDashboardPage() {
           <div className="space-y-3">
             {[...activeOrders, ...readyOrders].map((order) => {
               const action = NEXT_STATUS[order.status];
+              // PHASE A: rider heading to customer → shop  (statuses: rider_assigned, rider_on_way_pickup, picked_up)
+              // PHASE B: rider heading shop → customer     (statuses: ready_for_delivery, rider_on_way_delivery)
+              const isReturnPhase = [
+                "ready_for_delivery",
+                "rider_on_way_delivery",
+              ].includes(order.status);
+              const pickupLabel = isReturnPhase
+                ? "PICKUP FROM SHOP"
+                : "PICKUP FROM CUSTOMER";
+              const deliverLabel = isReturnPhase
+                ? "DELIVER TO CUSTOMER"
+                : "DROP OFF AT SHOP";
+              const pickupName = isReturnPhase
+                ? (order as any).shop?.shop_name
+                : (order as any).pickup_address?.full_address;
+              const pickupSub = isReturnPhase
+                ? (order as any).shop?.address
+                : ((order as any).customer?.phone ?? "");
+              const deliverName = isReturnPhase
+                ? (order as any).pickup_address?.full_address
+                : (order as any).shop?.shop_name;
+              const deliverSub = isReturnPhase
+                ? ""
+                : (order as any).shop?.address;
               return (
                 <Card
                   key={order.id}
                   className={clsx(
                     "p-4 border-l-4",
-                    order.status === "ready_for_delivery"
-                      ? "border-l-green-500"
-                      : "border-l-primary",
+                    isReturnPhase ? "border-l-green-500" : "border-l-primary",
                   )}
                 >
                   <div className="flex items-start justify-between mb-2">
-                    <p className="font-bold text-gray-900">
-                      {order.order_number}
-                    </p>
+                    <div>
+                      <p className="font-bold text-gray-900">
+                        {order.order_number}
+                      </p>
+                      {isReturnPhase && (
+                        <p className="text-xs text-green-600 font-semibold mt-0.5">
+                          ✨ Laundry ready — deliver to customer
+                        </p>
+                      )}
+                    </div>
                     <StatusBadge status={order.status} size="sm" />
                   </div>
-                  <div className="text-xs text-gray-500 space-y-1 mb-3">
-                    <p className="flex items-center gap-1">
-                      <MapPin size={11} className="text-primary" />
-                      Shop: {(order as any).shop?.shop_name}
-                    </p>
-                    <p className="flex items-center gap-1">
-                      <MapPin size={11} className="text-green-500" />
-                      Customer: {(order as any).pickup_address?.full_address}
-                    </p>
+                  <div className="bg-gray-50 rounded-xl p-3 mb-3 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <MapPin
+                        size={12}
+                        className={
+                          isReturnPhase
+                            ? "text-primary mt-0.5 shrink-0"
+                            : "text-green-500 mt-0.5 shrink-0"
+                        }
+                      />
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400">
+                          {pickupLabel}
+                        </p>
+                        <p className="text-sm font-bold text-gray-800">
+                          {pickupName}
+                        </p>
+                        {pickupSub && (
+                          <p className="text-xs text-gray-400">{pickupSub}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="border-l-2 border-dashed border-gray-300 ml-1.5 h-3" />
+                    <div className="flex items-start gap-2">
+                      <MapPin
+                        size={12}
+                        className={
+                          isReturnPhase
+                            ? "text-green-500 mt-0.5 shrink-0"
+                            : "text-primary mt-0.5 shrink-0"
+                        }
+                      />
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400">
+                          {deliverLabel}
+                        </p>
+                        <p className="text-sm font-bold text-gray-800">
+                          {deliverName}
+                        </p>
+                        {deliverSub && (
+                          <p className="text-xs text-gray-400">{deliverSub}</p>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-lg font-extrabold text-green-600">
@@ -386,7 +450,7 @@ export function RiderDashboardPage() {
                   </span>
                 </div>
 
-                {/* Visual route: Customer → Shop → Customer */}
+                {/* Route for new bookings: always Customer → Shop → Customer */}
                 <div className="bg-gray-50 rounded-xl p-3 mb-3 space-y-2">
                   <div className="flex items-start gap-2">
                     <MapPin
@@ -395,11 +459,18 @@ export function RiderDashboardPage() {
                     />
                     <div>
                       <p className="text-xs font-bold text-gray-400">
-                        STEP 1 — PICKUP FROM CUSTOMER
+                        ① PICKUP FROM CUSTOMER
                       </p>
                       <p className="text-sm font-bold text-gray-800">
-                        {order.pickup_address?.full_address}
+                        {order.pickup_address?.full_address ||
+                          order.pickup_address?.city ||
+                          `${order.customer?.full_name ?? "Customer"}'s address`}
                       </p>
+                      {order.customer?.full_name && (
+                        <p className="text-xs text-gray-400">
+                          {order.customer.full_name} · {order.customer.phone}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="border-l-2 border-dashed border-gray-300 ml-1.5 h-3" />
@@ -410,7 +481,7 @@ export function RiderDashboardPage() {
                     />
                     <div>
                       <p className="text-xs font-bold text-gray-400">
-                        STEP 2 — DROP OFF AT SHOP
+                        ② DROP OFF AT SHOP
                       </p>
                       <p className="text-sm font-bold text-gray-800">
                         {order.shop?.shop_name}
@@ -428,10 +499,12 @@ export function RiderDashboardPage() {
                     />
                     <div>
                       <p className="text-xs font-bold text-gray-400">
-                        STEP 3 — DELIVER BACK TO CUSTOMER
+                        ③ DELIVER BACK TO CUSTOMER
                       </p>
                       <p className="text-sm font-bold text-gray-800">
-                        {order.pickup_address?.full_address}
+                        {order.pickup_address?.full_address ||
+                          order.pickup_address?.city ||
+                          "Same as pickup address"}
                       </p>
                     </div>
                   </div>

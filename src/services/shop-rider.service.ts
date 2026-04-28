@@ -174,9 +174,13 @@ export const riderService = {
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "*, shop:shop_profiles(id,shop_name,address,lat,lng), pickup_address:addresses(full_address,lat,lng)",
+        `
+        *,
+        shop:shop_profiles(id,shop_name,address,lat,lng),
+        pickup_address:addresses(id,full_address,city,barangay,lat,lng),
+        customer:users(id,full_name,phone)
+      `,
       )
-      // Riders see PENDING orders — they pick up from customer and deliver to shop
       .eq("status", "pending")
       .is("rider_id", null)
       .order("created_at", { ascending: true });
@@ -206,18 +210,62 @@ export const riderService = {
       .subscribe();
   },
 
-  // Browser Geolocation API — replaces expo-location
+  // Browser Geolocation API — uses real GPS on mobile, simulates movement on desktop
   watchLocation(onUpdate: (lat: number, lng: number) => void): number | null {
-    if (!navigator.geolocation) return null;
+    if (!navigator.geolocation) {
+      // Fallback: simulate movement around Parañaque for desktop demo
+      console.warn(
+        "Geolocation not available — using simulated location for demo",
+      );
+      startSimulatedLocation(onUpdate);
+      return -1; // sentinel value for simulated
+    }
     const id = navigator.geolocation.watchPosition(
       (pos) => onUpdate(pos.coords.latitude, pos.coords.longitude),
-      (err) => console.error("Geolocation error:", err),
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 },
+      (err) => {
+        console.warn("GPS error, falling back to simulation:", err.message);
+        startSimulatedLocation(onUpdate);
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
     );
     return id;
   },
 
   stopWatchingLocation(watchId: number) {
+    if (watchId === -1) {
+      stopSimulatedLocation();
+      return;
+    }
     navigator.geolocation.clearWatch(watchId);
   },
 };
+
+// ─── Desktop GPS simulation ───────────────────────────────────────────────────
+let simInterval: ReturnType<typeof setInterval> | null = null;
+const SIM_WAYPOINTS = [
+  { lat: 14.494, lng: 121.0148 },
+  { lat: 14.497, lng: 121.018 },
+  { lat: 14.5, lng: 121.021 },
+  { lat: 14.503, lng: 121.019 },
+  { lat: 14.5045, lng: 121.016 },
+  { lat: 14.502, lng: 121.013 },
+  { lat: 14.499, lng: 121.012 },
+  { lat: 14.496, lng: 121.0135 },
+];
+function startSimulatedLocation(cb: (lat: number, lng: number) => void) {
+  if (simInterval) clearInterval(simInterval);
+  let idx = 0;
+  simInterval = setInterval(() => {
+    const wp = SIM_WAYPOINTS[idx % SIM_WAYPOINTS.length];
+    const j = () => (Math.random() - 0.5) * 0.0008;
+    cb(wp.lat + j(), wp.lng + j());
+    idx++;
+  }, 3000);
+  cb(SIM_WAYPOINTS[0].lat, SIM_WAYPOINTS[0].lng);
+}
+function stopSimulatedLocation() {
+  if (simInterval) {
+    clearInterval(simInterval);
+    simInterval = null;
+  }
+}

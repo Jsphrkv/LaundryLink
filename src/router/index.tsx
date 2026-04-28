@@ -15,6 +15,7 @@ import RiderEarningsPage from "../pages/rider/EarningsPage";
 import { ShopDashboardPage } from "../pages/shop/ShopDashboard";
 import ShopServicesPage from "../pages/shop/ServicesPage";
 import ShopOrdersPage from "../pages/shop/OrdersPage";
+import ShopEarningsPage from "../pages/shop/EarningsPage";
 import { AdminDashboardPage } from "../pages/admin/AdminDashboard";
 import AdminUsersPage from "../pages/admin/UsersPage";
 import AdminShopsPage from "../pages/admin/ShopsPage";
@@ -209,6 +210,14 @@ export default function AppRouter() {
           element={
             <RequireAuth>
               <ShopOrdersPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/shop/earnings"
+          element={
+            <RequireAuth>
+              <ShopEarningsPage />
             </RequireAuth>
           }
         />
